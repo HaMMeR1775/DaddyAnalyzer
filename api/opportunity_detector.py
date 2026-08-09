@@ -1071,131 +1071,311 @@ def _classify_dot_opportunity(
     target_state,
     damage_events=0,
     effect_events=0,
-opportunity_rules=None,
+    opportunity_rules=None,
 ):
     """
-    Score temporal DoT evidence conservatively.
+    Classify DoT uptime evidence conservatively.
 
-    FULL means the target's observable interval explicitly spans the
-    complete gap. PARTIAL means only part of the gap is explicitly
-    covered. UNKNOWN means coverage is still open at the end of the
-    observable data, so expiration cannot be inferred.
+    FULL:
+        Explicit coverage spans the complete gap.
+
+    PARTIAL:
+        Only part of the gap is explicitly covered.
+
+    NONE:
+        No observable coverage for a target active at gap start.
+
+    UNKNOWN:
+        Coverage remains open at the end of the observable window.
+        Expiration cannot be inferred.
     """
 
-    if opportunity_rules is not None:
-        use_temporal_coverage = opportunity_rules.get("use_temporal_coverage", True)
-    else:
-        use_temporal_coverage = True
+    rules = opportunity_rules or {}
 
-
-    if opportunity_rules is not None:
-        use_temporal_coverage = opportunity_rules.get("use_temporal_coverage", True)
-    else:
-        use_temporal_coverage = True
-
-    if not use_temporal_coverage:
-        return "TEMPORAL COVERAGE NOT TRACKED", "LOW", "LOW", 0
-
-    if not target_state.get("target_data_available", False):
-        return "TARGET DATA INSUFFICIENT", "LOW", "LOW", 15
-
-    temporal = target_state.get("temporal_coverage", {})
-    active_targets = target_state.get("active_targets_before_gap", [])
-
-    def coverage_for(target_key):
-        data = temporal.get(target_key)
-        if data is None:
-            data = temporal.get(str(target_key), {})
-        return data.get("coverage", "UNKNOWN")
-
-    if active_targets:
-        coverages = [coverage_for(target_key) for target_key in active_targets]
-
-        full_count = sum(value == "FULL" for value in coverages)
-        partial_count = sum(value == "PARTIAL" for value in coverages)
-        unknown_count = sum(value == "UNKNOWN" for value in coverages)
-        none_count = sum(value == "NONE" for value in coverages)
-        active_count = len(coverages)
-
-        if active_count and full_count == active_count:
-            score = 8
-            if damage_events > 0:
-                score += 2
-            return "FULL TEMPORAL COVERAGE / LIKELY NORMAL", "LOW", "LOW", min(score, 20)
-
-        # A removal followed by an application/refresh means the target was
-        # re-established during the gap. That event sequence is not, by
-        # itself, evidence that the entire gap was normal. Temporal coverage
-        # remains the deciding evidence.
-        final_state_summary = target_state.get(
-            "final_state_summary",
-            {},
-        )
-        reestablished_count = final_state_summary.get(
-            "ACTIVE_REESTABLISHED",
+    if not rules.get("use_temporal_coverage", True):
+        return (
+            "TEMPORAL COVERAGE NOT TRACKED",
+            "LOW",
+            "LOW",
             0,
         )
 
-        if reestablished_count > 0 and partial_count == 0 and unknown_count == 0:
-            score = 35
-            score += min(30, int(gap_seconds * 1.25))
-            if damage_events > 0:
-                score += 5
-            if effect_events > 0:
-                score += 5
+    if not target_state.get("target_data_available", False):
+        return (
+            "TARGET DATA INSUFFICIENT",
+            "LOW",
+            "LOW",
+            15,
+        )
+
+    temporal = target_state.get("temporal_coverage", {})
+    active_targets = target_state.get(
+        "active_targets_before_gap",
+        [],
+    )
+
+    def coverage_for(target_key):
+        data = temporal.get(target_key)
+
+        if data is None:
+            data = temporal.get(str(target_key), {})
+
+        return data.get("coverage", "UNKNOWN")
+
+    # No target was demonstrably active when the gap started.
+    if not active_targets:
+        applications = target_state.get(
+            "applications_during_gap",
+            0,
+        )
+        refreshes = target_state.get(
+            "refreshes_during_gap",
+            0,
+        )
+        targets_during = len(
+            target_state.get(
+                "targets_during_gap",
+                [],
+            )
+        )
+
+        if applications or refreshes:
+            score = 20
+
+            if applications:
+                score += 10
+
+            if refreshes:
+                score += 10
+
             return (
-                "DOT REESTABLISHED DURING GAP",
-                "MEDIUM",
-                "MEDIUM" if score < 70 else "HIGH",
-                min(score, 100),
+                "DOT ACTIVITY DURING GAP",
+                "LOW",
+                "LOW",
+                min(score, 50),
             )
 
-        if partial_count > 0:
-            score = 35
-            score += min(30, int(gap_seconds * 1.25))
-            score += min(20, partial_count * 10)
+        if targets_during:
+            score = 25
+
+            if damage_events > 0:
+                score += 5
+
+            return (
+                "TARGET ACTIVITY DURING GAP",
+                "LOW",
+                "LOW",
+                min(score, 40),
+            )
+
+        return (
+            "TARGET COVERAGE UNCERTAIN",
+            "LOW",
+            "LOW",
+            20,
+        )
+
+    coverages = [
+        coverage_for(target_key)
+        for target_key in active_targets
+    ]
+
+    active_count = len(coverages)
+
+    full_count = sum(
+        coverage == "FULL"
+        for coverage in coverages
+    )
+
+    partial_count = sum(
+        coverage == "PARTIAL"
+        for coverage in coverages
+    )
+
+    none_count = sum(
+        coverage == "NONE"
+        for coverage in coverages
+    )
+
+    unknown_count = sum(
+        coverage == "UNKNOWN"
+        for coverage in coverages
+    )
+
+    # --------------------------------------------------------
+    # FULL = explicitly covered for the whole gap.
+    # --------------------------------------------------------
+
+    if full_count == active_count:
+        score = 5
+
+        if damage_events:
+            score += 3
+
+        if effect_events:
+            score += 2
+
+        return (
+            "FULL TEMPORAL COVERAGE / LIKELY NORMAL",
+            "LOW",
+            "LOW",
+            min(score, 20),
+        )
+
+    # --------------------------------------------------------
+    # PARTIAL = possible uptime loss.
+    # --------------------------------------------------------
+
+    if partial_count:
+        score = 35
+        score += min(30, int(gap_seconds * 1.25))
+        score += min(20, partial_count * 10)
+
+        if full_count:
             score -= min(10, full_count * 3)
-            if damage_events > 0:
-                score += 5
-            if effect_events > 0:
-                score += 5
-            score = max(20, min(score, 100))
 
-            confidence = "MEDIUM" if partial_count >= max(1, active_count // 2) else "LOW"
-            if score >= 80:
-                return "STRONG POTENTIAL DOT UPTIME LOSS", confidence, "HIGH", score
-            if score >= 60:
-                return "POTENTIAL DOT UPTIME LOSS", confidence, "MEDIUM", score
-            return "PARTIAL DOT COVERAGE GAP", "LOW", "LOW", score
+        if damage_events:
+            score += 5
 
-        if unknown_count > 0:
-            score = 20
-            score += min(20, int(gap_seconds))
-            if damage_events > 0:
-                score += 5
-            return "TEMPORAL COVERAGE UNKNOWN", "LOW", "LOW", min(score, 45)
+        if effect_events:
+            score += 5
 
-        if none_count == active_count:
-            return "NO OBSERVABLE TEMPORAL COVERAGE", "LOW", "LOW", 15
+        score = max(20, min(score, 100))
 
-    applications = target_state.get("applications_during_gap", 0)
-    refreshes = target_state.get("refreshes_during_gap", 0)
-    targets_during = len(target_state.get("targets_during_gap", []))
+        confidence = (
+            "MEDIUM"
+            if partial_count >= max(1, active_count // 2)
+            else "LOW"
+        )
 
-    if applications or refreshes:
-        score = 20
-        if applications:
-            score += 10
-        if refreshes:
-            score += 10
-        return "DOT ACTIVITY DURING GAP", "LOW", "LOW", min(score, 50)
+        if not rules.get(
+            "partial_coverage_is_potential",
+            True,
+        ):
+            return (
+                "PARTIAL DOT COVERAGE",
+                "LOW",
+                "LOW",
+                min(score, 40),
+            )
 
-    if targets_during > 0:
-        score = 25 + (5 if damage_events > 0 else 0)
-        return "TARGET ACTIVITY DURING GAP", "LOW", "LOW", min(score, 40)
+        if score >= 80:
+            return (
+                "STRONG POTENTIAL DOT UPTIME LOSS",
+                confidence,
+                "HIGH",
+                score,
+            )
 
-    return "TARGET COVERAGE UNCERTAIN", "LOW", "LOW", 20
+        if score >= 60:
+            return (
+                "POTENTIAL DOT UPTIME LOSS",
+                confidence,
+                "MEDIUM",
+                score,
+            )
 
+        return (
+            "PARTIAL DOT COVERAGE GAP",
+            "LOW",
+            "LOW",
+            score,
+        )
+
+    # --------------------------------------------------------
+    # NONE = no observable coverage.
+    # --------------------------------------------------------
+
+    if none_count:
+        score = 40
+        score += min(30, int(gap_seconds * 1.25))
+        score += min(20, none_count * 10)
+
+        if unknown_count:
+            score -= min(10, unknown_count * 3)
+
+        if damage_events:
+            score += 5
+
+        if effect_events:
+            score += 5
+
+        score = max(25, min(score, 100))
+
+        confidence = (
+            "MEDIUM"
+            if none_count >= max(1, active_count // 2)
+            else "LOW"
+        )
+
+        if not rules.get(
+            "none_coverage_is_potential",
+            True,
+        ):
+            return (
+                "NO TEMPORAL COVERAGE",
+                "LOW",
+                "LOW",
+                min(score, 40),
+            )
+
+        if score >= 80:
+            return (
+                "STRONG POTENTIAL DOT UPTIME LOSS",
+                confidence,
+                "HIGH",
+                score,
+            )
+
+        if score >= 60:
+            return (
+                "POTENTIAL DOT UPTIME LOSS",
+                confidence,
+                "MEDIUM",
+                score,
+            )
+
+        return (
+            "NO OBSERVABLE TEMPORAL COVERAGE",
+            "LOW",
+            "LOW",
+            score,
+        )
+
+    # --------------------------------------------------------
+    # UNKNOWN = never infer expiration.
+    # --------------------------------------------------------
+
+    if unknown_count:
+        score = 20 + min(20, int(gap_seconds))
+
+        if damage_events:
+            score += 5
+
+        if rules.get(
+            "unknown_coverage_is_inconclusive",
+            True,
+        ):
+            return (
+                "TEMPORAL COVERAGE UNKNOWN",
+                "LOW",
+                "LOW",
+                min(score, 45),
+            )
+
+        return (
+            "TEMPORAL COVERAGE UNCERTAIN",
+            "LOW",
+            "LOW",
+            min(score, 45),
+        )
+
+    return (
+        "TARGET COVERAGE UNCERTAIN",
+        "LOW",
+        "LOW",
+        20,
+    )
 
 # ============================================================
 # EVIDENCE BUILDERS
