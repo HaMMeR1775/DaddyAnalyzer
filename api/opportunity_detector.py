@@ -350,10 +350,44 @@ def _detect_ability_specific_opportunities(
                     target_state=target_state,
                     damage_events=len(damage_during_gap),
                     effect_events=len(effects_during_gap),
-                opportunity_rules=ability_data.get("opportunity_rules", {}),
+                opportunity_rules=ability_data.get(
+                    "opportunity_rules",
+                    {},
+                ),
                 )
             )
 
+            coverage_summary = target_state.get(
+                "coverage_summary",
+                {},
+            )
+    
+            target_scope = (
+                "MULTI_TARGET"
+                if ability_data.get("track_targets", False)
+                else "SINGLE_TARGET"
+            )
+    
+            target_summary = {
+                "scope": target_scope,
+                "target_count": target_state.get("target_count", 0),
+                "active_targets_before_gap": len(
+                    target_state.get("active_targets_before_gap", [])
+                ),
+                "targets_during_gap": len(
+                    target_state.get("targets_during_gap", [])
+                ),
+                "coverage": {
+                    "FULL": coverage_summary.get("full", 0),
+                    "PARTIAL": coverage_summary.get("partial", 0),
+                    "NONE": coverage_summary.get("none", 0),
+                    "UNKNOWN": coverage_summary.get("unknown", 0),
+                },
+                "applications": target_state.get("applications_during_gap", 0),
+                "refreshes": target_state.get("refreshes_during_gap", 0),
+                "removals": target_state.get("removals_during_gap", 0),
+            }
+    
             opportunities.append(
                 {
                     "type": "DOT_GAP",
@@ -364,6 +398,7 @@ def _detect_ability_specific_opportunities(
                     "classification": dot_classification,
                     "confidence": dot_confidence,
                     "score": dot_score,
+                "target_summary": target_summary,
                     "evidence": _build_dot_evidence(
                         ability_name=ability_name,
                         gap_seconds=gap_seconds,
@@ -1394,42 +1429,111 @@ def _build_dot_evidence(
         )
 
     temporal = target_state.get("temporal_coverage", {})
-    active_before = target_state.get("active_targets_before_gap", [])
-    coverage_counts = {"FULL": 0, "PARTIAL": 0, "NONE": 0, "UNKNOWN": 0}
+    active_before = target_state.get(
+        "active_targets_before_gap",
+        [],
+    )
+
+    coverage_counts = {
+        "FULL": 0,
+        "PARTIAL": 0,
+        "NONE": 0,
+        "UNKNOWN": 0,
+    }
 
     temporal_lines = []
+
     for target_key in active_before:
         data = temporal.get(target_key)
+
         if data is None:
-            data = temporal.get(str(target_key), {})
-        coverage = data.get("coverage", "UNKNOWN")
-        coverage_counts[coverage] = coverage_counts.get(coverage, 0) + 1
-        temporal_lines.append(
-            f"{target_key}={coverage} ({data.get('coverage_seconds', 0.0):.1f}s/{data.get('gap_seconds', gap_seconds):.1f}s)"
+            data = temporal.get(
+                str(target_key),
+                {},
+            )
+
+        coverage = data.get(
+            "coverage",
+            "UNKNOWN",
         )
 
-    applications = target_state.get("applications_during_gap", 0)
-    refreshes = target_state.get("refreshes_during_gap", 0)
-    removals = target_state.get("removals_during_gap", 0)
+        coverage_counts[coverage] = (
+            coverage_counts.get(
+                coverage,
+                0,
+            ) + 1
+        )
+
+        temporal_lines.append(
+            f"{target_key}={coverage} "
+            f"({data.get('coverage_seconds', 0.0):.1f}s/"
+            f"{data.get('gap_seconds', gap_seconds):.1f}s)"
+        )
+
+    applications = target_state.get(
+        "applications_during_gap",
+        0,
+    )
+
+    refreshes = target_state.get(
+        "refreshes_during_gap",
+        0,
+    )
+
+    removals = target_state.get(
+        "removals_during_gap",
+        0,
+    )
+
+    target_count = target_state.get(
+        "target_count",
+        0,
+    )
+
+    target_scope = target_state.get(
+        "target_summary",
+        {},
+    ).get(
+        "scope",
+        "SINGLE_TARGET",
+    )
+
+    targets_during = len(
+        target_state.get(
+            "targets_during_gap",
+            [],
+        )
+    )
+
     final_state_summary = target_state.get(
         "final_state_summary",
         {},
     )
 
-    temporal_text = "; ".join(temporal_lines) if temporal_lines else "none at gap start"
+    temporal_text = (
+        "; ".join(temporal_lines)
+        if temporal_lines
+        else "none at gap start"
+    )
 
     return (
-        f"A {gap_seconds:.1f}s interval occurred between {ability_name} casts. "
-        f"{target_state.get('target_count', 0)} unique target(s) were observed. "
-        f"Temporal coverage for active targets: FULL={coverage_counts['FULL']}, "
-        f"PARTIAL={coverage_counts['PARTIAL']}, UNKNOWN={coverage_counts['UNKNOWN']}, "
-        f"NONE={coverage_counts['NONE']}. "
+        f"{ability_name} had a {gap_seconds:.1f}s gap. "
+        f"Target scope: {target_scope}. "
+        f"{target_count} unique target(s) were observed; "
+        f"{len(active_before)} were active at gap start and "
+        f"{targets_during} were observed during the gap. "
+        f"Temporal coverage: "
+        f"FULL={coverage_counts['FULL']}, "
+        f"PARTIAL={coverage_counts['PARTIAL']}, "
+        f"NONE={coverage_counts['NONE']}, "
+        f"UNKNOWN={coverage_counts['UNKNOWN']}. "
         f"Per-target: {temporal_text}. "
-        f"Applications during gap: {applications}. "
-        f"Refreshes during gap: {refreshes}. "
-        f"Removals during gap: {removals}. "
+        f"Applications: {applications}. "
+        f"Refreshes: {refreshes}. "
+        f"Removals: {removals}. "
         f"Final target states: {final_state_summary}. "
-        "No fixed DoT duration is assumed; an open interval remains UNKNOWN."
+        "No fixed DoT duration is assumed; "
+        "an open interval remains UNKNOWN."
     )
 
 
