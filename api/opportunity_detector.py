@@ -350,7 +350,7 @@ def _detect_ability_specific_opportunities(
                     target_state=target_state,
                     damage_events=len(damage_during_gap),
                     effect_events=len(effects_during_gap),
-                opportunity_rules=get_ability_profile(class_name, spec_name, ability_name).get("opportunity_rules", {}),
+                opportunity_rules=ability_data.get("opportunity_rules", {}),
                 )
             )
 
