@@ -309,6 +309,31 @@ def _detect_ability_specific_opportunities(
             key=lambda event: event["timestamp"]
         )
 
+    # ----------------------------------------------------
+    # STAR SURGE SPENDER ANALYSIS
+    # ----------------------------------------------------
+
+    if ability_name == "Starsurge":
+        opportunities.append(
+            {
+                "type": "STAR_SURGE_ANALYSIS",
+                "timestamp": current_time,
+                "gap_seconds": gap_seconds,
+                "ability": ability_name,
+                "severity": "LOW",
+                "classification": "SPENDER TIMING",
+                "confidence": "LOW",
+                "score": 0,
+                "evidence": (
+                    f"{ability_name} had a {gap_seconds:.1f}s interval between casts."
+                ),
+                "damage_events": len(damage_during_gap),
+                "effect_events": len(effects_during_gap),
+                "target_state": target_state,
+                "next_analysis": "RESOURCE / ECLIPSE / TARGET / BUFF STATE",
+            }
+        )
+
         for index in range(
             len(ability_casts) - 1
         ):
