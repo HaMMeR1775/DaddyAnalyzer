@@ -309,7 +309,6 @@ def _detect_ability_specific_opportunities(
             key=lambda event: event["timestamp"]
         )
 
-    # ----------------------------------------------------
         for index in range(
             len(ability_casts) - 1
         ):
@@ -465,9 +464,7 @@ def _detect_ability_specific_opportunities(
             cooldown_abilities,
         )
 
-        # ----------------------------------------------------
         # DOT -> DOT
-        # ----------------------------------------------------
 
         if (
             previous_category == "dot"
@@ -528,9 +525,7 @@ def _detect_ability_specific_opportunities(
                 }
             )
 
-        # ----------------------------------------------------
         # SPENDER -> BUILDER
-        # ----------------------------------------------------
 
         elif (
             previous_category == "spender"
@@ -579,9 +574,7 @@ def _detect_ability_specific_opportunities(
                 }
             )
 
-        # ----------------------------------------------------
         # SPENDER -> DOT
-        # ----------------------------------------------------
 
         elif (
             previous_category == "spender"
@@ -640,9 +633,7 @@ def _detect_ability_specific_opportunities(
                 }
             )
 
-        # ----------------------------------------------------
         # BUILDER -> DOT
-        # ----------------------------------------------------
 
         elif (
             previous_category == "builder"
@@ -1970,9 +1961,7 @@ def format_opportunities(
                         f"open_at_end={coverage.get('open_at_end', False)}"
                     )
 
-            # ----------------------------------------------------
             # PER-TARGET DIAGNOSTICS
-            # ----------------------------------------------------
             # Show exactly why every active target is considered
             # explained or unexplained. This is diagnostic only;
             # it does not change the scoring logic.
@@ -2093,5 +2082,6 @@ def _format_transition(
             "UNKNOWN",
         ),
     )
+
 
 
