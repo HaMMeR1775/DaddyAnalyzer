@@ -398,7 +398,7 @@ def _detect_ability_specific_opportunities(
                     "classification": dot_classification,
                     "confidence": dot_confidence,
                     "score": dot_score,
-                "target_summary": target_summary,
+                                "target_summary": target_summary,
                     "evidence": _build_dot_evidence(
                         ability_name=ability_name,
                         gap_seconds=gap_seconds,
@@ -2092,3 +2092,4 @@ def _format_transition(
             "UNKNOWN",
         ),
     )
+
